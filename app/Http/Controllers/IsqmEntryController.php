@@ -37,11 +37,32 @@ class IsqmEntryController extends Controller
             $query->where(function($q) use ($search) {
                 $q->where('quality_objective', 'like', "%{$search}%")
                   ->orWhere('quality_risk', 'like', "%{$search}%")
-                  ->orWhere('findings', 'like', "%{$search}%");
+                  ->orWhere('assessment_of_risk', 'like', "%{$search}%")
+                  ->orWhere('response', 'like', "%{$search}%")
+                  ->orWhere('firm_implementation', 'like', "%{$search}%")
+                  ->orWhere('findings', 'like', "%{$search}%")
+                  ->orWhere('root_cause', 'like', "%{$search}%")
+                  ->orWhere('remedial_actions', 'like', "%{$search}%")
+                  ->orWhere('title', 'like', "%{$search}%");
             });
         }
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
+        }
+        if ($request->filled('owner_id')) {
+            $query->where('owner_id', $request->owner_id);
+        }
+        if ($request->filled('due_date_from')) {
+            $query->whereDate('due_date', '>=', $request->due_date_from);
+        }
+        if ($request->filled('due_date_to')) {
+            $query->whereDate('due_date', '<=', $request->due_date_to);
+        }
+        if ($request->filled('created_from')) {
+            $query->whereDate('created_at', '>=', $request->created_from);
+        }
+        if ($request->filled('created_to')) {
+            $query->whereDate('created_at', '<=', $request->created_to);
         }
         if ($request->filled('overdue')) {
             $query->whereIn('status', ['open', 'monitoring'])
@@ -51,8 +72,94 @@ class IsqmEntryController extends Controller
 
         $entries = $query->latest('updated_at')->paginate(20)->withQueryString();
         $clients = \App\Models\Client::orderBy('name')->get();
+        $users = User::orderBy('name')->get();
 
-        return view('isqm.index', compact('entries', 'clients'));
+        return view('isqm.index', compact('entries', 'clients', 'users'));
+    }
+
+    public function trashed(Request $request): View
+    {
+        // Only admins and managers can view trashed entries
+        if (!in_array(auth()->user()->role, ['admin', 'manager'])) {
+            abort(403, 'You do not have permission to view trashed entries.');
+        }
+
+        $query = IsqmEntry::onlyTrashed()->with(['module', 'monitoringActivity', 'deficiencyType', 'client', 'owner']);
+
+        // Filters
+        if ($request->filled('area')) {
+            $query->where('area', $request->area);
+        }
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('quality_objective', 'like', "%{$search}%")
+                  ->orWhere('quality_risk', 'like', "%{$search}%")
+                  ->orWhere('findings', 'like', "%{$search}%");
+            });
+        }
+        if ($request->filled('client_id')) {
+            $query->where('client_id', $request->client_id);
+        }
+
+        $entries = $query->latest('deleted_at')->paginate(20)->withQueryString();
+        $clients = \App\Models\Client::orderBy('name')->get();
+
+        return view('isqm.trashed', compact('entries', 'clients'));
+    }
+
+    public function restore(Request $request, int $id): RedirectResponse
+    {
+        // Only admins and managers can restore entries
+        if (!in_array(auth()->user()->role, ['admin', 'manager'])) {
+            abort(403, 'You do not have permission to restore entries.');
+        }
+
+        $entry = IsqmEntry::onlyTrashed()->findOrFail($id);
+        $entry->restore();
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'restored',
+            'model_type' => IsqmEntry::class,
+            'model_id' => $entry->id,
+            'changes' => ['restored_at' => now()],
+        ]);
+
+        return redirect()->route('isqm.trashed')->with('status', "Entry #{$entry->id} restored successfully");
+    }
+
+    public function forceDelete(Request $request, int $id): RedirectResponse
+    {
+        // Only admins can permanently delete entries
+        if (auth()->user()->role !== 'admin') {
+            abort(403, 'You do not have permission to permanently delete entries.');
+        }
+
+        $entry = IsqmEntry::onlyTrashed()->with('attachments')->findOrFail($id);
+        
+        // Delete all attachment files from storage
+        foreach ($entry->attachments as $attachment) {
+            if (Storage::exists($attachment->path)) {
+                Storage::delete($attachment->path);
+            }
+        }
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'force_deleted',
+            'model_type' => IsqmEntry::class,
+            'model_id' => $entry->id,
+            'changes' => $entry->toArray(),
+        ]);
+
+        $entryId = $entry->id;
+        $entry->forceDelete();
+
+        return redirect()->route('isqm.trashed')->with('status', "Entry #{$entryId} permanently deleted");
     }
 
     public function show(IsqmEntry $isqm): View
@@ -98,28 +205,57 @@ class IsqmEntryController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $validated = $this->validated($request);
-        $entry = IsqmEntry::create($validated);
-        ActivityLog::create([
-            'user_id' => $request->user()?->id,
-            'action' => 'created',
-            'model_type' => IsqmEntry::class,
-            'model_id' => $entry->id,
-            'changes' => $entry->toArray(),
-        ]);
+        try {
+            $validated = $this->validated($request);
+            $entry = IsqmEntry::create($validated);
+            ActivityLog::create([
+                'user_id' => $request->user()?->id,
+                'action' => 'created',
+                'model_type' => IsqmEntry::class,
+                'model_id' => $entry->id,
+                'changes' => $entry->toArray(),
+            ]);
 
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $path = $file->store('isqm-attachments');
-                Attachment::create([
-                    'isqm_entry_id' => $entry->id,
-                    'path' => $path,
-                    'filename' => $file->getClientOriginalName(),
-                    'size' => $file->getSize(),
-                ]);
+            if ($request->hasFile('files')) {
+                $uploadErrors = [];
+                foreach ($request->file('files') as $file) {
+                    try {
+                        // Sanitize filename
+                        $originalName = $file->getClientOriginalName();
+                        $sanitizedName = preg_replace('/[<>:"|?*\x00-\x1F]/', '_', $originalName);
+                        $sanitizedName = str_replace('..', '', $sanitizedName);
+                        
+                        $path = $file->store('isqm-attachments');
+                        Attachment::create([
+                            'isqm_entry_id' => $entry->id,
+                            'path' => $path,
+                            'filename' => $sanitizedName ?: $originalName,
+                            'size' => $file->getSize(),
+                        ]);
+                    } catch (\Exception $e) {
+                        $uploadErrors[] = "Failed to upload {$file->getClientOriginalName()}: " . $e->getMessage();
+                    }
+                }
+                
+                if (!empty($uploadErrors)) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->withErrors(['files' => implode(' ', $uploadErrors)])
+                        ->with('warning', 'Entry created, but some files failed to upload.');
+                }
             }
+            
+            return $this->redirectAfterAction($request, $entry, 'Entry created successfully');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()->back()
+                ->withInput()
+                ->withErrors($e->errors())
+                ->with('error', 'Please correct the errors below and try again.');
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'An error occurred while creating the entry: ' . $e->getMessage());
         }
-        return $this->redirectAfterAction($request, $entry, 'Entry created');
     }
 
     public function edit(IsqmEntry $isqm): View
@@ -135,33 +271,73 @@ class IsqmEntryController extends Controller
 
     public function update(Request $request, IsqmEntry $isqm): RedirectResponse
     {
-        $validated = $this->validated($request);
-        $before = $isqm->getOriginal();
-        $isqm->update($validated);
-        $after = $isqm->fresh()->toArray();
-        ActivityLog::create([
-            'user_id' => $request->user()?->id,
-            'action' => 'updated',
-            'model_type' => IsqmEntry::class,
-            'model_id' => $isqm->id,
-            'changes' => ['before' => $before, 'after' => $after],
-        ]);
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $path = $file->store('isqm-attachments');
-                Attachment::create([
-                    'isqm_entry_id' => $isqm->id,
-                    'path' => $path,
-                    'filename' => $file->getClientOriginalName(),
-                    'size' => $file->getSize(),
-                ]);
+        try {
+            $validated = $this->validated($request);
+            $before = $isqm->getOriginal();
+            $isqm->update($validated);
+            $after = $isqm->fresh()->toArray();
+            ActivityLog::create([
+                'user_id' => $request->user()?->id,
+                'action' => 'updated',
+                'model_type' => IsqmEntry::class,
+                'model_id' => $isqm->id,
+                'changes' => ['before' => $before, 'after' => $after],
+            ]);
+            
+            if ($request->hasFile('files')) {
+                $uploadErrors = [];
+                foreach ($request->file('files') as $file) {
+                    try {
+                        // Sanitize filename
+                        $originalName = $file->getClientOriginalName();
+                        $sanitizedName = preg_replace('/[<>:"|?*\x00-\x1F]/', '_', $originalName);
+                        $sanitizedName = str_replace('..', '', $sanitizedName);
+                        
+                        $path = $file->store('isqm-attachments');
+                        Attachment::create([
+                            'isqm_entry_id' => $isqm->id,
+                            'path' => $path,
+                            'filename' => $sanitizedName ?: $originalName,
+                            'size' => $file->getSize(),
+                        ]);
+                    } catch (\Exception $e) {
+                        $uploadErrors[] = "Failed to upload {$file->getClientOriginalName()}: " . $e->getMessage();
+                    }
+                }
+                
+                if (!empty($uploadErrors)) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->withErrors(['files' => implode(' ', $uploadErrors)])
+                        ->with('warning', 'Entry updated, but some files failed to upload.');
+                }
             }
+            
+            return $this->redirectAfterAction($request, $isqm, 'Entry updated successfully');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()->back()
+                ->withInput()
+                ->withErrors($e->errors())
+                ->with('error', 'Please correct the errors below and try again.');
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'An error occurred while updating the entry: ' . $e->getMessage());
         }
-        return $this->redirectAfterAction($request, $isqm, 'Entry updated');
     }
 
     public function destroy(Request $request, IsqmEntry $isqm): RedirectResponse
     {
+        // Load attachments before deletion
+        $isqm->load('attachments');
+        
+        // Delete all attachment files from storage
+        foreach ($isqm->attachments as $attachment) {
+            if (Storage::exists($attachment->path)) {
+                Storage::delete($attachment->path);
+            }
+        }
+        
         ActivityLog::create([
             'user_id' => auth()->id(),
             'action' => 'deleted',
@@ -185,8 +361,15 @@ class IsqmEntryController extends Controller
         $ids = $request->ids;
         
         if ($request->action === 'delete') {
-            $entries = IsqmEntry::whereIn('id', $ids)->get();
+            $entries = IsqmEntry::whereIn('id', $ids)->with('attachments')->get();
             foreach ($entries as $entry) {
+                // Delete all attachment files from storage
+                foreach ($entry->attachments as $attachment) {
+                    if (Storage::exists($attachment->path)) {
+                        Storage::delete($attachment->path);
+                    }
+                }
+                
                 ActivityLog::create([
                     'user_id' => auth()->id(),
                     'action' => 'deleted',
@@ -439,7 +622,52 @@ class IsqmEntryController extends Controller
             'client_id' => 'nullable|exists:clients,id',
             'due_date' => 'nullable|date',
             'review_date' => 'nullable|date',
-            'files.*' => 'nullable|file|max:20480',
+            'files.*' => [
+                'nullable',
+                'file',
+                'max:20480', // 20MB in KB
+                'mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        // Additional MIME type validation
+                        $allowedMimes = [
+                            'application/pdf',
+                            'application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'application/vnd.ms-excel',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            'image/jpeg',
+                            'image/jpg',
+                            'image/png',
+                        ];
+                        
+                        $mimeType = $value->getMimeType();
+                        if (!in_array($mimeType, $allowedMimes)) {
+                            $fail('The file ' . $value->getClientOriginalName() . ' has an invalid file type. Allowed types: PDF, Word, Excel, Images.');
+                        }
+                        
+                        // File size limits by type
+                        $sizeInKB = $value->getSize() / 1024;
+                        if (str_starts_with($mimeType, 'image/')) {
+                            if ($sizeInKB > 5120) { // 5MB for images
+                                $fail('The image ' . $value->getClientOriginalName() . ' is too large. Maximum size for images is 5MB.');
+                            }
+                        } elseif (str_starts_with($mimeType, 'application/vnd.ms-excel') || str_starts_with($mimeType, 'application/vnd.openxmlformats-officedocument.spreadsheetml')) {
+                            if ($sizeInKB > 10240) { // 10MB for Excel files
+                                $fail('The Excel file ' . $value->getClientOriginalName() . ' is too large. Maximum size for Excel files is 10MB.');
+                            }
+                        } elseif ($sizeInKB > 20480) { // 20MB for other files
+                            $fail('The file ' . $value->getClientOriginalName() . ' is too large. Maximum size is 20MB.');
+                        }
+                        
+                        // Filename sanitization check
+                        $filename = $value->getClientOriginalName();
+                        if (preg_match('/[<>:"|?*\x00-\x1F]/', $filename)) {
+                            $fail('The filename ' . $filename . ' contains invalid characters.');
+                        }
+                    }
+                },
+            ],
         ]);
 
         if (isset($validated['area'])) {
@@ -527,6 +755,61 @@ class IsqmEntryController extends Controller
             'information-and-communication' => 'areas.information',
             default => null,
         };
+    }
+
+    public function downloadAttachment(Attachment $attachment)
+    {
+        // Load the entry relationship
+        $attachment->load('entry');
+        
+        // Verify the attachment belongs to an ISQM entry
+        $entry = $attachment->entry;
+        if (!$entry) {
+            abort(404, 'Attachment not found');
+        }
+
+        // Check if file exists
+        if (!Storage::exists($attachment->path)) {
+            abort(404, 'File not found');
+        }
+
+        return Storage::download($attachment->path, $attachment->filename);
+    }
+
+    public function deleteAttachment(Request $request, Attachment $attachment)
+    {
+        // Load the entry relationship
+        $attachment->load('entry');
+        
+        // Verify the attachment belongs to an ISQM entry
+        $entry = $attachment->entry;
+        if (!$entry) {
+            abort(404, 'Attachment not found');
+        }
+
+        // Log the deletion
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'deleted',
+            'model_type' => Attachment::class,
+            'model_id' => $attachment->id,
+            'changes' => ['filename' => $attachment->filename, 'isqm_entry_id' => $attachment->isqm_entry_id],
+        ]);
+
+        // Delete the file from storage
+        if (Storage::exists($attachment->path)) {
+            Storage::delete($attachment->path);
+        }
+
+        // Delete the database record
+        $filename = $attachment->filename;
+        $attachment->delete();
+
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Attachment deleted successfully']);
+        }
+
+        return redirect()->back()->with('status', "Attachment '{$filename}' deleted successfully");
     }
 }
 

@@ -11,50 +11,107 @@
   <section style="margin-bottom:20px;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
       <h2 style="margin:0;color:#0f172a;font-size:22px;">Filters</h2>
-      <a href="{{ route('isqm.compliance') }}" class="btn" style="background:#1e3a8a;">Compliance Now</a>
+      <div style="display:flex;gap:8px;">
+        <button type="button" onclick="toggleAdvancedFilters()" class="btn" style="background:#64748b;font-size:13px;" id="toggle-filters-btn">Show Advanced Filters</button>
+        <a href="{{ route('isqm.compliance') }}" class="btn" style="background:#1e3a8a;">Compliance Now</a>
+      </div>
     </div>
-    <form method="get" action="{{ route('isqm.index') }}" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-    <div>
-      <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Search</label>
-      <input type="text" name="search" value="{{ request('search') }}" placeholder="Search objectives, risks, findings..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-    </div>
-    <div>
-      <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Area</label>
-      <select name="area" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-        <option value="">All Areas</option>
-        @foreach ($areas as $key => $label)
-          <option value="{{ $key }}" @selected(request('area') === $key)>{{ $label }}</option>
-        @endforeach
-      </select>
-    </div>
-    <div>
-      <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Status</label>
-      <select name="status" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-        <option value="">All Status</option>
-        <option value="open" @selected(request('status') === 'open')>Open</option>
-        <option value="monitoring" @selected(request('status') === 'monitoring')>Monitoring</option>
-        <option value="closed" @selected(request('status') === 'closed')>Closed</option>
-      </select>
-    </div>
-    <div>
-      <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Client</label>
-      <select name="client_id" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-        <option value="">All Clients</option>
-        @foreach ($clients as $c)
-          <option value="{{ $c->id }}" @selected(request('client_id') == $c->id)>{{ $c->name }}</option>
-        @endforeach
-      </select>
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn">Filter</button>
-      <a href="{{ route('isqm.index') }}" class="btn" style="background:#64748b;">Clear</a>
-    </div>
+    <form method="get" action="{{ route('isqm.index') }}" id="filter-form">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Search</label>
+          <input type="text" name="search" value="{{ request('search') }}" placeholder="Search all fields..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Area</label>
+          <select name="area" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+            <option value="">All Areas</option>
+            @foreach ($areas as $key => $label)
+              <option value="{{ $key }}" @selected(request('area') === $key)>{{ $label }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Status</label>
+          <select name="status" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+            <option value="">All Status</option>
+            <option value="open" @selected(request('status') === 'open')>Open</option>
+            <option value="monitoring" @selected(request('status') === 'monitoring')>Monitoring</option>
+            <option value="closed" @selected(request('status') === 'closed')>Closed</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Client</label>
+          <select name="client_id" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+            <option value="">All Clients</option>
+            @foreach ($clients as $c)
+              <option value="{{ $c->id }}" @selected(request('client_id') == $c->id)>{{ $c->name }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button type="submit" class="btn">Filter</button>
+          <a href="{{ route('isqm.index') }}" class="btn" style="background:#64748b;">Clear</a>
+        </div>
+      </div>
+      
+      <div id="advanced-filters" style="display:none;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;align-items:end;padding:16px;background:#f1f5f9;border-radius:10px;border:1px solid #e2e8f0;margin-top:8px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Owner</label>
+          <select name="owner_id" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+            <option value="">All Owners</option>
+            @foreach ($users as $u)
+              <option value="{{ $u->id }}" @selected(request('owner_id') == $u->id)>{{ $u->name }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Due Date From</label>
+          <input type="date" name="due_date_from" value="{{ request('due_date_from') }}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Due Date To</label>
+          <input type="date" name="due_date_to" value="{{ request('due_date_to') }}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Created From</label>
+          <input type="date" name="created_from" value="{{ request('created_from') }}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#475569;">Created To</label>
+          <input type="date" name="created_to" value="{{ request('created_to') }}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+      </div>
     </form>
   </section>
+  
+  <script>
+    function toggleAdvancedFilters() {
+      const filters = document.getElementById('advanced-filters');
+      const btn = document.getElementById('toggle-filters-btn');
+      if (filters.style.display === 'none' || filters.style.display === '') {
+        filters.style.display = 'grid';
+        btn.textContent = 'Hide Advanced Filters';
+      } else {
+        filters.style.display = 'none';
+        btn.textContent = 'Show Advanced Filters';
+      }
+    }
+    
+    // Show advanced filters if any advanced filter is set
+    @if(request('owner_id') || request('due_date_from') || request('due_date_to') || request('created_from') || request('created_to'))
+      document.addEventListener('DOMContentLoaded', function() {
+        toggleAdvancedFilters();
+      });
+    @endif
+  </script>
 
   <div class="topbar">
     <h2>ISQM Register</h2>
     <div style="display:flex;gap:8px;">
+      @if(in_array(auth()->user()->role, ['admin', 'manager']))
+        <a class="btn" href="{{ route('isqm.trashed') }}" style="background:#f59e0b;">Trashed Entries</a>
+      @endif
       <a class="btn" href="{{ route('isqm.import.form') }}" style="background:#64748b;">Import Excel</a>
       <a class="btn" href="{{ route('isqm.create', ['return_to' => request()->fullUrl()]) }}">Add Entry</a>
     </div>

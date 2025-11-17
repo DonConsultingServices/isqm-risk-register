@@ -36,9 +36,18 @@ Route::middleware('guest')->group(function () {
 
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 
+// Attachment downloads (must be before isqm routes to avoid route conflicts)
+Route::middleware('auth')->group(function () {
+    Route::get('/attachments/{attachment}/download', [IsqmEntryController::class, 'downloadAttachment'])->name('attachments.download');
+    Route::delete('/attachments/{attachment}', [IsqmEntryController::class, 'deleteAttachment'])->name('attachments.delete');
+});
+
 Route::prefix('isqm')->name('isqm.')->middleware('auth')->group(function () {
     Route::get('/', [IsqmEntryController::class, 'index'])->name('index');
     Route::get('/compliance-now', [IsqmEntryController::class, 'complianceNow'])->name('compliance');
+    Route::get('/trashed', [IsqmEntryController::class, 'trashed'])->name('trashed');
+    Route::post('/trashed/{id}/restore', [IsqmEntryController::class, 'restore'])->name('restore');
+    Route::delete('/trashed/{id}/force', [IsqmEntryController::class, 'forceDelete'])->name('force-delete');
     Route::get('/create', [IsqmEntryController::class, 'create'])->name('create');
     Route::post('/', [IsqmEntryController::class, 'store'])->name('store');
     Route::post('/bulk', [IsqmEntryController::class, 'bulkUpdate'])->name('bulk.update');
@@ -84,6 +93,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
+    Route::get('/notifications/unread', [NotificationController::class, 'unread'])->name('notifications.unread');
+    Route::post('/notifications/{notification}/read-api', [NotificationController::class, 'markReadApi'])->name('notifications.read-api');
     Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit')->middleware('role:admin');
     Route::post('/settings', [SettingController::class, 'update'])->name('settings.update')->middleware('role:admin');
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');

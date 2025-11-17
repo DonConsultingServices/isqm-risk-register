@@ -132,9 +132,14 @@
       <h3 style="margin:0 0 12px;font-size:16px;font-weight:600;">Attachments</h3>
       <ul style="list-style:none;padding:0;margin:0;">
         @foreach($isqm->attachments as $att)
-          <li style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
-            <a href="{{ Storage::url($att->path) }}" target="_blank" style="color:var(--brand-blue);text-decoration:none;">{{ $att->filename }}</a>
-            <span style="color:#64748b;font-size:12px;margin-left:8px;">({{ number_format($att->size / 1024, 2) }} KB)</span>
+          <li style="padding:8px 0;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;">
+            <a href="{{ route('attachments.download', $att) }}" target="_blank" style="color:var(--brand-blue);text-decoration:none;flex:1;">{{ $att->filename }}</a>
+            <span style="color:#64748b;font-size:12px;">({{ number_format($att->size / 1024, 2) }} KB)</span>
+            <form method="POST" action="{{ route('attachments.delete', $att) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this attachment? This action cannot be undone.');">
+              @csrf
+              @method('DELETE')
+              <button type="submit" style="background:#ef4444;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;" title="Delete attachment">×</button>
+            </form>
           </li>
         @endforeach
       </ul>

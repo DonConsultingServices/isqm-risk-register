@@ -36,6 +36,35 @@
       <a href="{{ $returnTo }}" class="btn" style="background:#64748b;">Cancel</a>
     </div>
 
+    @if (session('error'))
+      <div style="padding:12px;background:#fee2e2;border:1px solid #fecaca;border-radius:6px;margin-bottom:16px;color:#991b1b;">
+        <strong>Error:</strong> {{ session('error') }}
+      </div>
+    @endif
+
+    @if (session('warning'))
+      <div style="padding:12px;background:#fef3c7;border:1px solid #fde047;border-radius:6px;margin-bottom:16px;color:#92400e;">
+        <strong>Warning:</strong> {{ session('warning') }}
+      </div>
+    @endif
+
+    @if (session('status'))
+      <div style="padding:12px;background:#d1fae5;border:1px solid #86efac;border-radius:6px;margin-bottom:16px;color:#065f46;">
+        {{ session('status') }}
+      </div>
+    @endif
+
+    @if ($errors->any())
+      <div style="padding:12px;background:#fee2e2;border:1px solid #fecaca;border-radius:6px;margin-bottom:16px;color:#991b1b;">
+        <strong>Please correct the following errors:</strong>
+        <ul style="margin:8px 0 0 20px;padding:0;">
+          @foreach ($errors->all() as $error)
+            <li>{{ $error }}</li>
+          @endforeach
+        </ul>
+      </div>
+    @endif
+
     <form method="post" 
           action="{{ route('isqm.store') }}" 
           enctype="multipart/form-data"

@@ -1,13 +1,15 @@
-@php($areas = [
+@php
+$areas = [
   'governance_and_leadership' => 'Governance and leadership',
   'ethical_requirements' => 'Ethical requirements',
   'acceptance_and_continuance' => 'Acceptance and continuance',
   'engagement_performance' => 'Engagement performance',
   'resources' => 'Resources',
   'information_and_communication' => 'Information and communication',
-])
-@php($title = 'Edit ISQM Entry #'.$entry->id)
-@php($returnTo = request('return_to') ? urldecode(request('return_to')) : (url()->previous() && url()->previous() !== url()->current() ? url()->previous() : route('isqm.index')))
+];
+$title = 'Edit ISQM Entry #'.$entry->id;
+$returnTo = request('return_to') ? urldecode(request('return_to')) : (url()->previous() && url()->previous() !== url()->current() ? url()->previous() : route('isqm.index'));
+@endphp
 <x-layouts.app :title="$title">
   <style>
     .form-section { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin-bottom:20px; }
@@ -66,6 +68,35 @@
         <a href="{{ $returnTo }}" class="btn" style="background:#64748b;">Cancel</a>
       </div>
     </div>
+
+    @if (session('error'))
+      <div style="padding:12px;background:#fee2e2;border:1px solid #fecaca;border-radius:6px;margin-bottom:16px;color:#991b1b;">
+        <strong>Error:</strong> {{ session('error') }}
+      </div>
+    @endif
+
+    @if (session('warning'))
+      <div style="padding:12px;background:#fef3c7;border:1px solid #fde047;border-radius:6px;margin-bottom:16px;color:#92400e;">
+        <strong>Warning:</strong> {{ session('warning') }}
+      </div>
+    @endif
+
+    @if (session('status'))
+      <div style="padding:12px;background:#d1fae5;border:1px solid #86efac;border-radius:6px;margin-bottom:16px;color:#065f46;">
+        {{ session('status') }}
+      </div>
+    @endif
+
+    @if ($errors->any())
+      <div style="padding:12px;background:#fee2e2;border:1px solid #fecaca;border-radius:6px;margin-bottom:16px;color:#991b1b;">
+        <strong>Please correct the following errors:</strong>
+        <ul style="margin:8px 0 0 20px;padding:0;">
+          @foreach ($errors->all() as $error)
+            <li>{{ $error }}</li>
+          @endforeach
+        </ul>
+      </div>
+    @endif
 
     <form method="post" 
           action="{{ route('isqm.update', $entry) }}" 
@@ -377,9 +408,14 @@
             <strong style="display:block;margin-bottom:8px;">Existing Attachments:</strong>
             <ul style="list-style:none;padding:0;margin:0;">
               @foreach ($entry->attachments as $a)
-                <li style="padding:4px 0;">
-                  <a href="{{ Storage::url($a->path) }}" target="_blank">{{ $a->filename }}</a>
-                  <span style="color:#64748b;font-size:12px;margin-left:8px;">({{ number_format($a->size / 1024, 2) }} KB)</span>
+                <li style="padding:4px 0;display:flex;align-items:center;gap:8px;">
+                  <a href="{{ route('attachments.download', $a) }}" target="_blank" style="flex:1;">{{ $a->filename }}</a>
+                  <span style="color:#64748b;font-size:12px;">({{ number_format($a->size / 1024, 2) }} KB)</span>
+                  <form method="POST" action="{{ route('attachments.delete', $a) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this attachment? This action cannot be undone.');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" style="background:#ef4444;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;" title="Delete attachment">×</button>
+                  </form>
                 </li>
               @endforeach
             </ul>
